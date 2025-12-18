@@ -279,7 +279,7 @@ This project is created for assessment purposes.
 
 ## 👤 Author
 
-Created for Intern - Developer position assessment.
+Created by me;
 
 ---
 
