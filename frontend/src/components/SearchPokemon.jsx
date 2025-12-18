@@ -471,6 +471,6 @@ const styles = {
     textAlign: "center",
     padding: "40px",
     color: "#999",
-    fontSize: "18px",
+    fontSize: "19px",
   },
 };
