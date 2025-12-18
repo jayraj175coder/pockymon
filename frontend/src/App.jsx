@@ -4,13 +4,16 @@ function App() {
   return (
     <div style={styles.app}>
       <header style={styles.header}>
-        <h1 style={styles.title}>⚡ PokéDex Search</h1>
+        <h1 style={styles.title}>⚡ PokéDex</h1>
         <p style={styles.subtitle}>
-          Search and filter Pokémon with full-text and semantic search
+          Search and filter Pokémon with fast & smart search
         </p>
       </header>
+
       <main style={styles.main}>
-        <SearchPokemon />
+        <div style={styles.card}>
+          <SearchPokemon />
+        </div>
       </main>
     </div>
   );
@@ -19,26 +22,46 @@ function App() {
 const styles = {
   app: {
     minHeight: "100vh",
+    background: "linear-gradient(135deg, #ffcb05, #3b4cca)",
+    display: "flex",
+    flexDirection: "column",
   },
+
   header: {
     textAlign: "center",
-    padding: "40px 20px",
-    color: "white",
+    padding: "60px 20px 40px",
+    color: "#fff",
   },
+
   title: {
-    fontSize: "48px",
+    fontSize: "3.5rem",
+    fontWeight: "800",
+    letterSpacing: "1px",
     marginBottom: "10px",
-    textShadow: "2px 2px 4px rgba(0,0,0,0.3)",
+    textShadow: "0 6px 20px rgba(0,0,0,0.3)",
   },
+
   subtitle: {
-    fontSize: "18px",
-    opacity: 0.9,
+    fontSize: "1.1rem",
+    opacity: 0.95,
+    maxWidth: "600px",
+    margin: "0 auto",
   },
+
   main: {
-    backgroundColor: "white",
-    minHeight: "calc(100vh - 200px)",
-    borderRadius: "30px 30px 0 0",
-    padding: "40px 20px",
+    flex: 1,
+    display: "flex",
+    justifyContent: "center",
+    padding: "0 20px 60px",
+  },
+
+  card: {
+    width: "100%",
+    maxWidth: "1200px",
+    backgroundColor: "#ffffff",
+    borderRadius: "20px",
+    padding: "40px",
+    boxShadow: "0 20px 50px rgba(0,0,0,0.15)",
   },
 };
 
