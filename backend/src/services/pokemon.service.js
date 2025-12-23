@@ -13,46 +13,123 @@ export const getAllTypes = async () => {
 };
 
 /**
- * Calculate similarity score between query and pokemon data
- * This provides semantic search capabilities
+ * Calculate Levenshtein distance between two strings
+ */
+const levenshteinDistance = (str1, str2) => {
+  const m = str1.length;
+  const n = str2.length;
+  const dp = Array(m + 1)
+    .fill(null)
+    .map(() => Array(n + 1).fill(0));
+
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (str1[i - 1] === str2[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1];
+      } else {
+        dp[i][j] = Math.min(
+          dp[i - 1][j] + 1, // deletion
+          dp[i][j - 1] + 1, // insertion
+          dp[i - 1][j - 1] + 1 // substitution
+        );
+      }
+    }
+  }
+
+  return dp[m][n];
+};
+
+/**
+ * Calculate similarity ratio (0-1) using Levenshtein distance
+ */
+const similarityRatio = (str1, str2) => {
+  if (!str1 || !str2) return 0;
+  const maxLen = Math.max(str1.length, str2.length);
+  if (maxLen === 0) return 1;
+  const distance = levenshteinDistance(str1.toLowerCase(), str2.toLowerCase());
+  return 1 - distance / maxLen;
+};
+
+/**
+ * Calculate semantic similarity score between query and pokemon data
+ * This provides true semantic search capabilities using string similarity
  */
 const calculateSimilarity = (query, pokemon) => {
-  const queryLower = query.toLowerCase();
+  const queryLower = query.toLowerCase().trim();
   const nameLower = pokemon.name.toLowerCase();
   const typesLower = pokemon.types.join(" ").toLowerCase();
   const searchTextLower = pokemon.searchText?.toLowerCase() || "";
 
   let score = 0;
 
-  // Exact name match gets highest score
+  // 1. Name similarity (highest weight - 40%)
+  const nameSimilarity = similarityRatio(queryLower, nameLower);
+  score += nameSimilarity * 40;
+
+  // Exact name match bonus
   if (nameLower === queryLower) {
-    score += 100;
-  } else if (nameLower.startsWith(queryLower)) {
-    score += 50;
-  } else if (nameLower.includes(queryLower)) {
     score += 30;
-  }
-
-  // Type matching
-  if (typesLower.includes(queryLower)) {
+  } else if (nameLower.startsWith(queryLower)) {
     score += 20;
+  } else if (nameLower.includes(queryLower)) {
+    score += 10;
   }
 
-  // Fuzzy matching on search text
-  const words = queryLower.split(" ");
-  words.forEach((word) => {
-    if (searchTextLower.includes(word)) {
-      score += 10;
-    }
+  // 2. Type matching (20%)
+  const queryWords = queryLower.split(/\s+/).filter(w => w.length > 0);
+  let typeMatchScore = 0;
+  queryWords.forEach((word) => {
+    pokemon.types.forEach((type) => {
+      const typeLower = type.toLowerCase();
+      if (typeLower === word) {
+        typeMatchScore += 15;
+      } else {
+        const typeSim = similarityRatio(word, typeLower);
+        typeMatchScore += typeSim * 10;
+      }
+    });
   });
+  score += Math.min(typeMatchScore, 20);
 
-  // Levenshtein-like similarity for partial matches
-  if (nameLower.length > 0 && queryLower.length > 0) {
-    const commonChars = [...queryLower].filter((char) => nameLower.includes(char)).length;
-    score += (commonChars / Math.max(queryLower.length, nameLower.length)) * 15;
+  // 3. Search text similarity (20%)
+  if (searchTextLower) {
+    const searchTextSim = similarityRatio(queryLower, searchTextLower);
+    score += searchTextSim * 20;
+
+    // Word-by-word matching in search text
+    queryWords.forEach((word) => {
+      if (searchTextLower.includes(word)) {
+        score += 5;
+      } else {
+        // Check for similar words
+        const searchWords = searchTextLower.split(/\s+/);
+        searchWords.forEach((sw) => {
+          const wordSim = similarityRatio(word, sw);
+          if (wordSim > 0.7) {
+            score += wordSim * 3;
+          }
+        });
+      }
+    });
   }
 
-  return score;
+  // 4. Partial character matching (10%)
+  const commonChars = [...queryLower].filter((char) => 
+    nameLower.includes(char) || typesLower.includes(char)
+  ).length;
+  if (queryLower.length > 0) {
+    score += (commonChars / queryLower.length) * 10;
+  }
+
+  // 5. Substring matching bonus
+  if (nameLower.includes(queryLower) || queryLower.includes(nameLower)) {
+    score += 5;
+  }
+
+  return Math.min(score, 100); // Cap at 100
 };
 
 /**
@@ -71,29 +148,34 @@ const fullTextSearch = async (query, additionalFilters = {}, limit = 20) => {
 
 /**
  * Semantic search using similarity scoring
+ * This searches ALL Pokemon and ranks them by semantic similarity
  */
 const semanticSearch = async (query, additionalFilters = {}, limit = 20) => {
-  // First, get candidates using regex for name/type matching
-  const filter = {
-    $or: [
-      { name: { $regex: query, $options: "i" } },
-      { types: { $in: [new RegExp(query, "i")] } },
-      { searchText: { $regex: query, $options: "i" } },
-    ],
-    ...additionalFilters,
-  };
+  // Get all Pokemon that match the additional filters (type, stats, etc.)
+  // This is true semantic search - we don't pre-filter by text matching
+  let candidates;
+  
+  if (Object.keys(additionalFilters).length > 0) {
+    // If there are filters, apply them first
+    candidates = await Pokemon.find(additionalFilters);
+  } else {
+    // Otherwise, get a reasonable subset for performance
+    // Get more candidates than needed to ensure good results
+    candidates = await Pokemon.find({}).limit(Number(limit) * 10);
+  }
 
-  const candidates = await Pokemon.find(filter).limit(Number(limit) * 2);
-
-  // Calculate similarity scores and sort
+  // Calculate similarity scores for all candidates
   const scored = candidates.map((pokemon) => ({
     pokemon,
     score: calculateSimilarity(query, pokemon),
   }));
 
-  scored.sort((a, b) => b.score - a.score);
+  // Filter out zero-score results and sort by score
+  const filtered = scored.filter((item) => item.score > 0);
+  filtered.sort((a, b) => b.score - a.score);
 
-  return scored.slice(0, Number(limit)).map((item) => item.pokemon);
+  // Return top results
+  return filtered.slice(0, Number(limit)).map((item) => item.pokemon);
 };
 
 /**
@@ -178,27 +260,35 @@ export const searchPokemon = async (params) => {
   // Hybrid search: combine full-text and semantic results
   if (searchMode === "hybrid") {
     try {
-      // Try full-text search first
-      const fullTextResults = await fullTextSearch(trimmedQuery, additionalFilters, limit);
-      
-      // If we got good results, return them
-      if (fullTextResults.length >= limit * 0.5) {
-        return fullTextResults;
-      }
+      // Run both searches in parallel for better performance
+      const [fullTextResults, semanticResults] = await Promise.all([
+        fullTextSearch(trimmedQuery, additionalFilters, limit).catch(() => []),
+        semanticSearch(trimmedQuery, additionalFilters, limit),
+      ]);
 
-      // Otherwise, supplement with semantic search
-      const semanticResults = await semanticSearch(trimmedQuery, additionalFilters, limit);
-      
-      // Merge and deduplicate
+      // Merge results with priority: full-text results first, then semantic
       const resultMap = new Map();
-      fullTextResults.forEach((p) => resultMap.set(p._id.toString(), p));
+      
+      // Add full-text results first (they get priority)
+      fullTextResults.forEach((p) => {
+        resultMap.set(p._id.toString(), { pokemon: p, source: "fulltext", priority: 1 });
+      });
+      
+      // Add semantic results, but don't override full-text results
       semanticResults.forEach((p) => {
-        if (!resultMap.has(p._id.toString())) {
-          resultMap.set(p._id.toString(), p);
+        const id = p._id.toString();
+        if (!resultMap.has(id)) {
+          resultMap.set(id, { pokemon: p, source: "semantic", priority: 2 });
         }
       });
 
-      return Array.from(resultMap.values()).slice(0, Number(limit));
+      // Convert to array and sort: full-text first, then semantic
+      const merged = Array.from(resultMap.values())
+        .sort((a, b) => a.priority - b.priority)
+        .slice(0, Number(limit))
+        .map((item) => item.pokemon);
+
+      return merged;
     } catch (error) {
       // If text index doesn't exist, fall back to semantic search
       return semanticSearch(trimmedQuery, additionalFilters, limit);
@@ -211,7 +301,7 @@ export const searchPokemon = async (params) => {
       return semanticSearch(trimmedQuery, additionalFilters, limit);
     }
   } else {
-    // semantic mode
+    // semantic mode - pure semantic search
     return semanticSearch(trimmedQuery, additionalFilters, limit);
   }
 };
